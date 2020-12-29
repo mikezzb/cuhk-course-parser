@@ -3,6 +3,8 @@ from PIL import Image
 from bs4 import BeautifulSoup
 from contextlib import closing
 import io
+import pytesseract
+import json
 
 class Course:
     def __init__(self):
@@ -19,6 +21,7 @@ class Course:
         self.course_url = 'http://rgsntl.rgs.cuhk.edu.hk/aqs_prd_applx/Public/tt_dsp_crse_catalog.aspx'
         self.sess = requests.Session()
         self.courses = {}
+        self.form_body = {}
 
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
@@ -32,59 +35,151 @@ class Course:
         with closing(self.sess.get(url, headers=self.headers)) as captcha_res:
             in_memory_file = io.BytesIO(captcha_res.content)
             im = Image.open(in_memory_file)
-            im.show()
-            captcha = str(input('Input the captcha here: '))
+            if manual:
+                im.show()
+                captcha = str(input('Input the captcha here: '))
+            else:
+                captcha = pytesseract.image_to_string(im)
+                print(f'Recognized captcha: {captcha}')
             return captcha
 
-    @staticmethod
-    def get_form(soup: BeautifulSoup) -> dict:
+    def update_form(self, soup: BeautifulSoup) -> dict:
         form_body = {'__VIEWSTATEFIELDCOUNT': soup.select_one('#__VIEWSTATEFIELDCOUNT')['value']}
-        form_keys = ['__EVENTVALIDATION', '__VIEWSTATEGENERATOR', 'hf_Captcha', '__VIEWSTATE'] + [f"__VIEWSTATE{str(i)}" for i in range(1, int(form_body['__VIEWSTATEFIELDCOUNT']))]
+        form_keys = ['__EVENTVALIDATION', '__VIEWSTATEGENERATOR', '__VIEWSTATE'] + [f'__VIEWSTATE{str(i)}' for i in range(1, int(form_body['__VIEWSTATEFIELDCOUNT']))]
         for k in form_keys:
             form_body[k] = soup.select_one(f'#{k}')['value']
-        form_body.update({
-            'btn_search': 'Search',
-            'hf_previous_page': 'SEARCH',
-            'hf_max_search_iteration': 1,
-            'hf_search_iteration': 1,
-        })
-        return form_body
+        self.form_body.update(form_body)
 
-    def search_subject(self, subject):
+    def search_subject(self, subject, save=False, manual=True):
         with closing(self.sess.get(self.course_url, headers=self.headers)) as res:
             soup = BeautifulSoup(res.text, 'html.parser')
-            form_body = self.get_form(soup)
-            captcha_node = soup.select_one('#imgCaptcha')
-            captcha_url = f"http://rgsntl.rgs.cuhk.edu.hk/aqs_prd_applx/Public/{captcha_node['src']}"
-            captcha = self.get_captcha(captcha_url)
-            form_body.update({
-                'txt_captcha': captcha,
+            self.update_form(soup)
+            captcha_id = soup.select_one('#hf_Captcha')['value']
+            captcha_url = f'http://rgsntl.rgs.cuhk.edu.hk/aqs_prd_applx/Public/BuildCaptcha.aspx?captchaname={captcha_id}&len=4'
+            captcha_text = self.get_captcha(captcha_url, manual)
+            self.form_body.update({
+                'hf_Captcha': captcha_id,
+                'txt_captcha': captcha_text,
                 'ddl_subject': subject,
+                'hf_previous_page': 'SEARCH',
+                'hf_max_search_iteration': '1',
+                'hf_search_iteration': '1',
             })
+            form_body = {
+                'btn_search': 'Search',
+            }
+            form_body.update(self.form_body)
             with closing(self.sess.post(self.course_url, headers=self.form_headers, data=form_body)) as res:
-                self.parse_subject_courses(subject, res.text)
+                self.parse_subject_courses(subject, res.text, save)
     
-    def parse_subject_courses(self, subject, html):
+    def parse_subject_courses(self, subject, html, save):
         course_list = []
         soup = BeautifulSoup(html, 'html.parser')
-        course_row_nodes = soup.select('.normalGridViewRowStyle') + soup.select('.normalGridViewAlternatingRowStyle')
-        for row in course_row_nodes:
+        self.update_form(soup)
+        course_row_nodes = soup.select_one('#gv_detail').findChildren('tr', recursive=False)
+        course_row_nodes.pop(0) # remove the header node
+        for i, row in enumerate(course_row_nodes):
             a_node = row.select('a')
             course = {
                 'code': a_node[0].text,
                 'title': a_node[1].text,
-                'id': a_node[1]['id'], # used to get details later
             }
+            print(f'Posting request {i}')
+            num = f'0{i+2}' if i + 2 < 10 else str(i+2)
+            form_body = {
+                '__EVENTTARGET': f'gv_detail$ctl{num}$lbtn_course_title',
+            }
+            form_body.update(self.form_body)
+            with closing(self.sess.post(self.course_url, headers=self.headers, data=form_body)) as res:
+                course_detail = self.parse_course_detail(res.text)
+                course.update(course_detail)
             course_list.append(course)
-        self.courses[subject] = sorted(course_list, key=lambda x:x['code'])
+        course_list = sorted(course_list, key=lambda x:x['code'])
 
-    def get_course_detail(self, form_body: dict, event_target: str):
-        form_body.update({
-            '__EVENTTARGET': event_target
-            # sth like gv_detail$ctl02$lbtn_course_title, inside <a> of class normalGridViewAlternatingRowStyle and normalGridViewRowStyle
-        })
+        if save:
+            with open(f'{subject}.json', 'w') as f:
+                json.dump(course_list, f)
+        self.courses[subject] = course_list
+
+    def parse_course_detail(self, html) -> dict:
+        soup = BeautifulSoup(html, 'html.parser')
+        course_detail = {
+            'career': soup.select_one('#uc_course_lbl_acad_career').text,
+            'units': soup.select_one('#uc_course_lbl_units').text,
+            'grading': soup.select_one('#uc_course_lbl_grading_basis').text,
+            'components': soup.select_one('#uc_course_lbl_component').text,
+            'campus': soup.select_one('#uc_course_lbl_campus').text,
+            'academic_group': soup.select_one('#uc_course_lbl_acad_group').text,
+            'requirements': soup.select_one('#uc_course_tc_enrl_requirement'),
+            'description': soup.select_one('#uc_course_lbl_crse_descrlong').text,
+            'academic_group': soup.select_one('#uc_course_lbl_acad_group').text,
+        }
+        if course_detail['requirements']:
+            course_detail['requirements'] = soup.select_one('#uc_course_tc_enrl_requirement').get_text(';')
+
+        try: 
+            course_sections = {}
+            course_sections_table = soup.select_one('#uc_course_gv_sched').findChildren('tr', recursive=False)
+            course_sections_table.pop(0) # remove the header node
+            for schedule in course_sections_table:
+                # schedule is a <tr> tag with 3 children, first is the section code, second is the reg status, last is course detail table
+                children = schedule.findChildren('td', recursive=False)
+                section = children[0].text.strip('\n')
+                start_times, end_times, days, locations, instructors, meeting_dates = [], [], [], [], [], ''
+                timeslots = children[2].findChildren('tr') # each tr is a teaching timeslot, e.g. Wed and Thu Lectures are two teaching timelot
+                for node in timeslots:
+                    details = list(filter(lambda x: x!='\n', node.get_text(';').split(';'))) # 0: days & time 1: Room 2: Instructor 3: part of teaching date
+                    days_and_times = self.parse_days_and_times(details[0])
+                    if days_and_times[0] in days and days_and_times[1] in start_times: # i.e. duplicated
+                        continue
+                    days.append(days_and_times[0])
+                    start_times.append(days_and_times[1])
+                    end_times.append(days_and_times[2])
+                    locations.append(details[1])
+                    instructors.append(details[2])
+                    meeting_dates += f', {details[3]}'
+                course_sections[section] = {
+                    'startTimes': start_times,
+                    'endTimes': end_times,
+                    'days': days,
+                    'locations': locations,
+                    'instructors': instructors
+                }
+            course_detail['sections'] = course_sections
+            print(course_sections)
+        except AttributeError:
+            print('No section for this course')
+            pass
+        return course_detail
+
+    @staticmethod
+    def parse_days_and_times(s: str) -> tuple:
+        if s == 'TBA':
+            return ('TBA', 'TBA', 'TBA')
+        def to_24_hours(s: str):
+            if 'PM' in s:
+                s = s.replace('PM','')
+                t = s.split(':')
+                if t[0] != '12':
+                    t[0] = str(int(t[0])+12)
+                    s = ':'.join(t)
+            else:
+                s = s.replace('AM','')
+            return s
+        days_dict = {
+            'Mo': 1,
+            'Tu': 2,
+            'We': 3,
+            'Th': 4,
+            'Fr': 5,
+            'Sa': 6,
+            'Su': 0,
+        }
+        raw_list = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
+        return (days_dict[raw_list[0]], to_24_hours(raw_list[1]), to_24_hours(raw_list[2]))
 
 cusis = Course()
 cusis.get_code_list()
-cusis.search_subject('CSCI')
-print(cusis.courses)
+print(cusis.code_list)
+cusis.search_subject('ACCT', save=True)
+# print(cusis.courses)
