@@ -3,11 +3,15 @@ from PIL import Image
 from bs4 import BeautifulSoup
 from contextlib import closing
 import io
+import sys
+import os
 import pytesseract
 import json
 
+FLUSH = '\x1b[1K\r'
+
 class Course:
-    def __init__(self):
+    def __init__(self, dirname=''):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
@@ -22,13 +26,57 @@ class Course:
         self.sess = requests.Session()
         self.courses = {}
         self.form_body = {}
+        self.dirname = dirname
+        if not os.path.isdir(dirname):
+            os.mkdir(dirname)
+        try:
+            with open(os.path.join(self.dirname, 'subjects.json'), 'r') as f:
+                self.faculty_subjects = json.load(f)
+        except FileNotFoundError:
+            self.faculty_subjects = {}
 
-    def parse_all(self):
+    # Get all department codes
+    def process_faculty_subjects(self):
+        subjects_under_department = {}
+        for k, v in self.faculty_subjects.items():
+            if v in subjects_under_department:
+                subjects_under_department[v].append(k)
+            else:
+                subjects_under_department[v] = [k]
+        print(f'Number of departments: {len(subjects_under_department)}')
+        with open(os.path.join(self.dirname, 'departments.json'), 'w') as f:
+            json.dump(subjects_under_department, f)
+
+    # Get all courses under a subject, and save Id and title only
+    def process_subjects(self):
+        all_courses = {}
+        with os.scandir(self.dirname) as it:
+            for entry in it:
+                with open(entry.path, 'r') as f:
+                    filename = entry.path[(len(self.dirname)+1):-5]
+                    if(len(filename) == 4): # i.e. filename is a valid subject code
+                        course_list = []
+                        courses = json.load(f)
+                        for course in courses:
+                            course_list.append({
+                                'courseId': filename + course['code'],
+                                'title': course['title']
+                            })
+                        all_courses[filename] = course_list
+        with open(os.path.join(self.dirname, 'subjcet_courses.json'), 'w') as f:
+            json.dump(all_courses, f)
+
+    def parse_all(self, save=True, manual=True):
         self.get_code_list()
-        print(f"Parsing courses for all {len(self.code_list)} subjects")
+        print(f'Parsing courses for all {len(self.code_list)} subjects')
         for code in self.code_list:
-            print(f"\nParsing courses for {code.split()[0]}\n")
-            self.search_subject(code.split()[0], save=True)
+            subject = code.split()[0]
+            with closing(self.sess.get(self.course_url, headers=self.headers)) as res:
+                soup = BeautifulSoup(res.text, 'html.parser')
+                subjects_elements = soup.select('#ddl_subject option')[1:] # the first one element is not valid
+                for element in subjects_elements:
+                    subject = element.get('value')
+                    self.search_subject(subject, save, manual)
 
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
@@ -68,7 +116,8 @@ class Course:
         else:
             return form_body
 
-    def search_subject(self, subject, save=False, manual=True): # get all course under a subject code
+    def search_subject(self, subject, save=True, manual=True): # get all course under a subject code
+        print(f'Parsing courses under subject {subject}')
         with closing(self.sess.get(self.course_url, headers=self.headers)) as res:
             soup = BeautifulSoup(res.text, 'html.parser')
             self.update_form(soup)
@@ -78,7 +127,6 @@ class Course:
                 'hf_max_search_iteration': '1',
                 'hf_search_iteration': '1',
             })
-
             while True:
                 self.get_captcha(soup, manual)
                 form_body = { 'btn_search': 'Search' }
@@ -88,9 +136,11 @@ class Course:
                     if correct_captcha:
                         break
                     else:
-                        print("Wrong captcha")
+                        print('Wrong captcha!' if manual else 'Unable to decode the captcha, please enter manually!')
+                        manual = True
     
     def parse_subject_courses(self, subject, html, save): # parse the courses under a subject and get details of each course
+        global FLUSH
         course_list = []
         soup = BeautifulSoup(html, 'html.parser')
         self.update_form(soup)
@@ -99,25 +149,30 @@ class Course:
             return False
         course_row_nodes = course_detail_node.findChildren('tr', recursive=False)
         course_row_nodes.pop(0) # remove the header node
+        print(f'Found {len(course_row_nodes)} courses under subject {subject}')
         for i, row in enumerate(course_row_nodes):
             a_node = row.select('a')
             course = {
                 'code': a_node[0].text,
                 'title': a_node[1].text,
             }
-            print(f'Posting request {i}')
-            num = f'0{i+2}' if i + 2 < 10 else str(i+2)
+            sys.stdout.write('{}Posting request #{} for {}{} {}'.format(FLUSH, i + 1, subject, course['code'], course['title']))
             form_body = {
-                '__EVENTTARGET': f'gv_detail$ctl{num}$lbtn_course_title',
+                '__EVENTTARGET': 'gv_detail$ctl{}$lbtn_course_title'.format(f'0{i+2}' if i + 2 < 10 else str(i+2)),
             }
             form_body.update(self.form_body)
             with closing(self.sess.post(self.course_url, headers=self.headers, data=form_body)) as res:
                 course_detail = self.parse_course_detail(res.text)
+                if not subject in self.faculty_subjects and 'academic_group' in course_detail:
+                    self.faculty_subjects[subject] = course_detail['academic_group']
+                    with open(os.path.join(self.dirname, 'subjects.json'), 'w') as f:
+                        json.dump(self.faculty_subjects, f)
                 course.update(course_detail)
             course_list.append(course)
+        print(f'{FLUSH}Saved {len(course_list)} {subject} courses in {os.path.join(self.dirname, subject)}.json')
         course_list = sorted(course_list, key=lambda x:x['code'])
         if save:
-            with open(f'{subject}.json', 'w') as f:
+            with open(os.path.join(self.dirname, f'{subject}.json'), 'w') as f:
                 json.dump(course_list, f)
         self.courses[subject] = course_list
         return True
@@ -125,29 +180,35 @@ class Course:
     def parse_course_detail(self, html) -> dict:
         # Get general information about the course
         soup = BeautifulSoup(html, 'html.parser')
-        course_detail = {
-            'career': soup.select_one('#uc_course_lbl_acad_career').text,
-            'units': soup.select_one('#uc_course_lbl_units').text,
-            'grading': soup.select_one('#uc_course_lbl_grading_basis').text,
-            'components': soup.select_one('#uc_course_lbl_component').text,
-            'campus': soup.select_one('#uc_course_lbl_campus').text,
-            'academic_group': soup.select_one('#uc_course_lbl_acad_group').text,
-            'requirements': soup.select_one('#uc_course_tc_enrl_requirement'),
-            'description': soup.select_one('#uc_course_lbl_crse_descrlong').text,
-            'academic_group': soup.select_one('#uc_course_lbl_acad_group').text,
-        }
-        course_detail['requirements'] = soup.select_one('#uc_course_tc_enrl_requirement').get_text(';') if course_detail['requirements'] else ''
+        try:
+            course_detail = {
+                'career': soup.select_one('#uc_course_lbl_acad_career').text,
+                'units': soup.select_one('#uc_course_lbl_units').text,
+                'grading': soup.select_one('#uc_course_lbl_grading_basis').text,
+                'components': soup.select_one('#uc_course_lbl_component').text,
+                'campus': soup.select_one('#uc_course_lbl_campus').text,
+                'academic_group': soup.select_one('#uc_course_lbl_acad_group').text,
+                'requirements': soup.select_one('#uc_course_tc_enrl_requirement'),
+                'description': soup.select_one('#uc_course_lbl_crse_descrlong').text,
+                'outcome': '',
+                'syllabus': '',
+                'required_readings': '',
+                'recommended_readings': '',
+            }
+            course_detail['requirements'] = soup.select_one('#uc_course_tc_enrl_requirement').get_text(';') if course_detail['requirements'] else ''
+        except AttributeError:
+            print('Unknown error parsing this course')
+            return {}
         
         # Get sections of the course
         try: 
             term_selection_options = soup.select_one('#uc_course_ddl_class_term').findChildren('option', recursive=False)
+            terms = {}
             for term_node in term_selection_options:
                 if term_node.has_attr('selected'):
-                    print(f"For term {term_node.text}")
                     course_sections = self.parse_sections(soup)
                 else:
                     # post form request to get schedule for non-default term
-                    print(f"For non-selected term {term_node.text}")
                     form = {
                         'uc_course$btn_class_section': 'Show sections',
                         'uc_course$ddl_class_term': term_node['value'],
@@ -157,9 +218,9 @@ class Course:
                         soup_alt = BeautifulSoup(res.text, 'html.parser')
                         course_sections = self.parse_sections(soup_alt)
                     pass
-                course_detail[term_node.text] = course_sections
-                print(course_sections)
+                terms[term_node.text] = course_sections
             
+            course_detail['terms'] = terms
             # Get course outcome for the course
             form = {
                 'btn_course_outcome': 'Course Outcome',
@@ -184,7 +245,7 @@ class Course:
                     assessments[td_nodes[1].text] = td_nodes[2].text
                 course_detail['assessments'] = assessments
         except AttributeError:
-            print('No section / outcome for this course')
+            # print('No section / outcome for this course')
             pass
         return course_detail
 
@@ -244,14 +305,16 @@ class Course:
         raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
         return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
 
-cusis = Course()
+cusis = Course(dirname='courses')
+cusis.search_subject('AIST')
+
 # cusis.parse_all()
-cusis.search_subject('ACCT', save=False)
+# cusis.process_subjects()
+# cusis.process_faculty_subjects()
 # print(cusis.courses)
 
-"""
+'''
 TODO
-1. Push to DB
-2. replace special char in outcome and syllabus with sth normal
-3. Auto captcha
-"""
+1. replace special char in outcome and syllabus with sth normal
+2. Auto captcha
+'''
