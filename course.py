@@ -2,6 +2,7 @@ import requests
 from PIL import Image
 from bs4 import BeautifulSoup
 from contextlib import closing
+import re
 import io
 import sys
 import os
@@ -65,6 +66,39 @@ class Course:
                         all_courses[filename] = course_list
         with open(os.path.join(self.dirname, 'subjcet_courses.json'), 'w') as f:
             json.dump(all_courses, f)
+
+    # Get all lecturer name
+    def process_instructors_name(self):
+        TITLE_PREFIXS = ['Ms', 'Dr', 'Mr', 'Miss', 'Professor']
+        REMOVE_TITLE_REGEX = r'\b(?:' + '|'.join(TITLE_PREFIXS) + r')\.\s*'
+        CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
+        occurrence = {}
+        instructors=[]
+        with os.scandir(self.dirname) as it:
+            for entry in it:
+                with open(entry.path, 'r') as f:
+                    filename = entry.path[(len(self.dirname)+1):-5]
+                    if(len(filename) == 4): # i.e. filename is a valid subject code
+                        course_list = []
+                        courses = json.load(f)
+                        for course in courses:
+                            if 'terms' in course:
+                                for term in course['terms'].values():
+                                    for section in term.values():
+                                        for instructor in section['instructors']:
+                                            # Remove the title
+                                            instructor = re.sub(REMOVE_TITLE_REGEX, '', instructor)
+                                            instructor = re.sub(CLEANING_REGEX, '', instructor).strip()
+                                            # Split for multiple instructors in one section
+                                            for part in instructor.split(', '):    
+                                                if part in occurrence:
+                                                    continue
+                                                instructors.append(part)
+                                                occurrence[part] = True
+        print(f"Found {len(instructors)} instructors")
+        with open(os.path.join(self.dirname, 'instructors.json'), 'w') as f:
+            json.dump(instructors, f)
+
 
     def parse_all(self, save=True, manual=True):
         self.get_code_list()
@@ -306,11 +340,13 @@ class Course:
         return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
 
 cusis = Course(dirname='courses')
-cusis.search_subject('AIST')
+cusis.process_instructors_name()
+# cusis.search_subject('AIST')
 
 # cusis.parse_all()
 # cusis.process_subjects()
 # cusis.process_faculty_subjects()
+# cusis.process_instructor_names()
 # print(cusis.courses)
 
 '''
