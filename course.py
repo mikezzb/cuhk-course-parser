@@ -8,11 +8,12 @@ import sys
 import os
 import pytesseract
 import json
+import time
 
 FLUSH = '\x1b[1K\r'
 
 class Course:
-    def __init__(self, dirname=''):
+    def __init__(self, dirname='', save_captchas=False):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
@@ -28,8 +29,11 @@ class Course:
         self.courses = {}
         self.form_body = {}
         self.dirname = dirname
+        self.save_captchas = save_captchas
         if not os.path.isdir(dirname):
             os.mkdir(dirname)
+        if not os.path.isdir("captchas"):
+            os.mkdir("captchas")
         try:
             with open(os.path.join(self.dirname, 'subjects.json'), 'r') as f:
                 self.faculty_subjects = json.load(f)
@@ -120,7 +124,7 @@ class Course:
                 code_list.append(node.text)
             self.code_list = list(filter(None, code_list))
 
-    def get_captcha(self, soup:BeautifulSoup, manual=True):
+    def get_captcha(self, soup:BeautifulSoup, manual=True) -> Image:
         captcha_id = soup.select_one('#hf_Captcha')['value']
         captcha_url = f'http://rgsntl.rgs.cuhk.edu.hk/aqs_prd_applx/Public/BuildCaptcha.aspx?captchaname={captcha_id}&len=4'
         with closing(self.sess.get(captcha_url, headers=self.headers)) as captcha_res:
@@ -136,6 +140,7 @@ class Course:
                 'hf_Captcha': captcha_id,
                 'txt_captcha': captcha,
             })
+            return im
 
     def update_form(self, soup: BeautifulSoup, update=True, additional_keys=None) -> dict:
         form_body = {'__VIEWSTATEFIELDCOUNT': soup.select_one('#__VIEWSTATEFIELDCOUNT')['value']}
@@ -162,12 +167,16 @@ class Course:
                 'hf_search_iteration': '1',
             })
             while True:
-                self.get_captcha(soup, manual)
+                im = self.get_captcha(soup, manual)
                 form_body = { 'btn_search': 'Search' }
                 form_body.update(self.form_body)
                 with closing(self.sess.post(self.course_url, headers=self.form_headers, data=form_body)) as res:
                     correct_captcha = self.parse_subject_courses(subject, res.text, save)
                     if correct_captcha:
+                        if self.save_captchas:
+                            # Save image & label here as training dataset
+                            filename = str(int(time.time()))
+                            im.save(f"captchas/{self.form_body['txt_captcha']}_{filename}.png")   
                         break
                     else:
                         print('Wrong captcha!' if manual else 'Unable to decode the captcha, please enter manually!')
@@ -339,9 +348,8 @@ class Course:
         raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
         return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
 
-cusis = Course(dirname='courses')
-cusis.process_instructors_name()
-# cusis.search_subject('AIST')
+cusis = Course(dirname='courses', save_captchas=True)
+cusis.search_subject('AIST', manual=False)
 
 # cusis.parse_all()
 # cusis.process_subjects()
