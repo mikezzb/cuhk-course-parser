@@ -9,6 +9,7 @@ import os
 import pytesseract
 import json
 import time
+import traceback
 
 FLUSH = '\x1b[1K\r'
 
@@ -34,6 +35,9 @@ class Course:
             os.mkdir(dirname)
         if not os.path.isdir("captchas"):
             os.mkdir("captchas")
+        if not os.path.isdir("logs"):
+            os.mkdir("logs")
+        self.log_file = open(os.path.join('logs', f'parser-{str(int(time.time()))}.log'), 'w')
         try:
             with open(os.path.join(self.dirname, 'subjects.json'), 'r') as f:
                 self.faculty_subjects = json.load(f)
@@ -104,24 +108,29 @@ class Course:
             json.dump(instructors, f)
 
 
-    def parse_all(self, save=True, manual=True):
+    def parse_all(self, save=True, manual=True, skip_parsed=False):
         self.get_code_list()
-        print(f'Parsing courses for all {len(self.code_list)} subjects')
+        print(f'Parsing courses for all {len(self.code_list)} subjects, {"skip if already existed" if skip_parsed else ""}')
+        parsed_subjects = {}
+        if skip_parsed:
+            with os.scandir(self.dirname) as it:
+                for entry in it:
+                    subject = entry.path[(len(self.dirname)+1):-5]
+                    parsed_subjects[subject] = True
         for code in self.code_list:
-            subject = code.split()[0]
-            with closing(self.sess.get(self.course_url, headers=self.headers)) as res:
-                soup = BeautifulSoup(res.text, 'html.parser')
-                subjects_elements = soup.select('#ddl_subject option')[1:] # the first one element is not valid
-                for element in subjects_elements:
-                    subject = element.get('value')
-                    self.search_subject(subject, save, manual)
+            if skip_parsed and code in parsed_subjects:
+                print(f'{code} found in dir, skipped parsing')
+                continue
+            self.search_subject(code, save, manual)
+        print("Parsing finished!")
 
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
             soup = BeautifulSoup(res.text, 'html.parser')
             code_list = []
-            for node in soup.select('option'):
-                code_list.append(node.text)
+            for node in soup.select('#ddl_subject option')[1:]:
+                code_list.append(node.get('value'))
+            print(list(filter(None, code_list)))
             self.code_list = list(filter(None, code_list))
 
     def get_captcha(self, soup:BeautifulSoup, manual=True) -> Image:
@@ -205,7 +214,7 @@ class Course:
             }
             form_body.update(self.form_body)
             with closing(self.sess.post(self.course_url, headers=self.headers, data=form_body)) as res:
-                course_detail = self.parse_course_detail(res.text)
+                course_detail = self.parse_course_detail(res.text, subject + course['code'])
                 if not subject in self.faculty_subjects and 'academic_group' in course_detail:
                     self.faculty_subjects[subject] = course_detail['academic_group']
                     with open(os.path.join(self.dirname, 'subjects.json'), 'w') as f:
@@ -220,7 +229,7 @@ class Course:
         self.courses[subject] = course_list
         return True
 
-    def parse_course_detail(self, html) -> dict:
+    def parse_course_detail(self, html, course_id) -> dict:
         # Get general information about the course
         soup = BeautifulSoup(html, 'html.parser')
         try:
@@ -239,8 +248,10 @@ class Course:
                 'recommended_readings': '',
             }
             course_detail['requirements'] = soup.select_one('#uc_course_tc_enrl_requirement').get_text(';') if course_detail['requirements'] else ''
-        except AttributeError:
-            print('Unknown error parsing this course')
+        except AttributeError as e:
+            print('Error parsing information for this course')
+            self.log_file.write(f'Error parsing course info for {course_id}: {str(e)}\n')
+            self.log_file.write(traceback.format_exc())
             return {}
         
         # Get sections of the course
@@ -288,7 +299,12 @@ class Course:
                     assessments[td_nodes[1].text] = td_nodes[2].text
                 course_detail['assessments'] = assessments
         except AttributeError:
-            # print('No section / outcome for this course')
+            # Probably just missing some non-mandatory fields
+            pass
+        except Exception as e:
+            print('Error parsing section / outcome for this course')
+            self.log_file.write(f'Error parsing course details for {course_id}: {str(e)}\n')
+            self.log_file.write(traceback.format_exc())
             pass
         return course_detail
 
@@ -318,12 +334,12 @@ class Course:
                 'endTimes': end_times,
                 'days': days,
                 'locations': locations,
-                'instructors': instructors
+                'instructors': instructors,
+                'meetingDates': list(filter(None, meeting_dates.split(', '))),
             }
         return course_sections
 
-    @staticmethod
-    def parse_days_and_times(s: str) -> tuple:
+    def parse_days_and_times(self, s: str) -> tuple:
         if s == 'TBA':
             return ('TBA', 'TBA', 'TBA')
         def to_24_hours(s: str):
@@ -348,10 +364,11 @@ class Course:
         raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
         return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
 
-cusis = Course(dirname='courses', save_captchas=True)
-cusis.search_subject('AIST', manual=False)
 
-# cusis.parse_all()
+
+cusis = Course(dirname='courses', save_captchas=True)
+cusis.parse_all(skip_parsed=True)
+# cusis.search_subject('ELTU', manual=False)
 # cusis.process_subjects()
 # cusis.process_faculty_subjects()
 # cusis.process_instructor_names()
