@@ -12,6 +12,8 @@ import time
 import traceback
 
 FLUSH = '\x1b[1K\r'
+CURRENT_TERM = "2021-22 Term 1"
+
 
 class Course:
     def __init__(self, dirname='', save_captchas=False):
@@ -44,6 +46,27 @@ class Course:
         except FileNotFoundError:
             self.faculty_subjects = {}
 
+    def post_processing(self):
+        self.log_file.close()
+
+    def with_course(self, fn):
+        with os.scandir(self.dirname) as it:
+            for entry in it:
+                with open(entry.path, 'r') as f:
+                    filename = entry.path[(len(self.dirname)+1):-5]
+                    if(len(filename) == 4): # i.e. filename is a valid subject code
+                        courses = json.load(f)
+                        fn(courses, filename, f)
+
+    def with_course_section(self, fn):
+        def append_to_sections(courses, subject, f):
+            for course in courses:
+                if 'terms' in course:
+                    for term in course['terms'].values():
+                        for section in term.values():
+                            fn(section, course)
+        self.with_course(append_to_sections)
+
     # Get all department codes
     def process_faculty_subjects(self):
         subjects_under_department = {}
@@ -57,21 +80,26 @@ class Course:
             json.dump(subjects_under_department, f)
 
     # Get all courses under a subject, and save Id and title only
-    def process_subjects(self):
+    def process_subjects(self, label_availability = False, concise=False):
         all_courses = {}
-        with os.scandir(self.dirname) as it:
-            for entry in it:
-                with open(entry.path, 'r') as f:
-                    filename = entry.path[(len(self.dirname)+1):-5]
-                    if(len(filename) == 4): # i.e. filename is a valid subject code
-                        course_list = []
-                        courses = json.load(f)
-                        for course in courses:
-                            course_list.append({
-                                'courseId': filename + course['code'],
-                                'title': course['title']
-                            })
-                        all_courses[filename] = course_list
+        def append_to_subjects(courses, subject, f):
+            course_list = []
+            for course in courses:
+                course_concise = {
+                    'courseId' if not concise else 'c': subject + course['code'],
+                    'title' if not concise else 't': course['title']
+                }
+                if label_availability:
+                    avaliable = False
+                    if 'terms' in course:
+                        for term in course['terms'].keys():
+                            if term == CURRENT_TERM:
+                                avaliable = True
+                                break
+                    course_concise['offerring' if not concise else 'o'] = 1 if avaliable else 0
+                course_list.append(course_concise)
+            all_courses[subject] = course_list
+        self.with_course(append_to_subjects)
         with open(os.path.join(self.dirname, 'subjcet_courses.json'), 'w') as f:
             json.dump(all_courses, f)
 
@@ -82,31 +110,28 @@ class Course:
         CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
         occurrence = {}
         instructors=[]
-        with os.scandir(self.dirname) as it:
-            for entry in it:
-                with open(entry.path, 'r') as f:
-                    filename = entry.path[(len(self.dirname)+1):-5]
-                    if(len(filename) == 4): # i.e. filename is a valid subject code
-                        course_list = []
-                        courses = json.load(f)
-                        for course in courses:
-                            if 'terms' in course:
-                                for term in course['terms'].values():
-                                    for section in term.values():
-                                        for instructor in section['instructors']:
-                                            # Remove the title
-                                            instructor = re.sub(REMOVE_TITLE_REGEX, '', instructor)
-                                            instructor = re.sub(CLEANING_REGEX, '', instructor).strip()
-                                            # Split for multiple instructors in one section
-                                            for part in instructor.split(', '):    
-                                                if part in occurrence:
-                                                    continue
-                                                instructors.append(part)
-                                                occurrence[part] = True
+        def append_to_instructors(section, course):
+           for instructor in section['instructors']:
+                # Remove the title
+                instructor = re.sub(REMOVE_TITLE_REGEX, '', instructor)
+                instructor = re.sub(CLEANING_REGEX, '', instructor).strip()
+                # Split for multiple instructors in one section
+                for part in instructor.split(', '):    
+                    if part in occurrence:
+                        continue
+                    instructors.append(part)
+                    occurrence[part] = True
+        self.with_course_section(append_to_instructors)
         print(f"Found {len(instructors)} instructors")
         with open(os.path.join(self.dirname, 'instructors.json'), 'w') as f:
             json.dump(instructors, f)
-
+    
+    def remove_empty_courses(self):
+        def append_to_remove(courses, subject, f):
+            if not courses or len(courses) == 0:
+                self.log_file.write(f'Removed empty {subject}.json')
+                os.remove(os.path.join(self.dirname, f'{subject}.json'))
+        self.with_course(append_to_remove)
 
     def parse_all(self, save=True, manual=True, skip_parsed=False):
         self.get_code_list()
@@ -367,12 +392,15 @@ class Course:
 
 
 cusis = Course(dirname='courses', save_captchas=True)
-cusis.parse_all(skip_parsed=True)
-# cusis.search_subject('ELTU', manual=False)
-# cusis.process_subjects()
+# cusis.parse_all(skip_parsed=True)
+# cusis.search_subject('NURS', manual=False)
+cusis.process_subjects(label_availability=True, concise=True)
 # cusis.process_faculty_subjects()
-# cusis.process_instructor_names()
+# cusis.process_instructors_name()
 # print(cusis.courses)
+# cusis.remove_empty_courses()
+# cusis.label_non_current_term_courses()
+cusis.post_processing()
 
 '''
 TODO
