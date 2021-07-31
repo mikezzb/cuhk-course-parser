@@ -16,7 +16,7 @@ CURRENT_TERM = "2021-22 Term 1"
 
 
 class Course:
-    def __init__(self, dirname='', save_captchas=False):
+    def __init__(self, dirname='courses', data_dirname='data', save_captchas=False):
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
@@ -32,6 +32,7 @@ class Course:
         self.courses = {}
         self.form_body = {}
         self.dirname = dirname
+        self.data_dirname = data_dirname
         self.save_captchas = save_captchas
         if not os.path.isdir(dirname):
             os.mkdir(dirname)
@@ -41,7 +42,7 @@ class Course:
             os.mkdir("logs")
         self.log_file = open(os.path.join('logs', f'parser-{str(int(time.time()))}.log'), 'w')
         try:
-            with open(os.path.join(self.dirname, 'subjects.json'), 'r') as f:
+            with open(os.path.join(self.data_dirname, 'subjects.json'), 'r') as f:
                 self.faculty_subjects = json.load(f)
         except FileNotFoundError:
             self.faculty_subjects = {}
@@ -76,7 +77,7 @@ class Course:
             else:
                 subjects_under_department[v] = [k]
         print(f'Number of departments: {len(subjects_under_department)}')
-        with open(os.path.join(self.dirname, 'departments.json'), 'w') as f:
+        with open(os.path.join(self.data_dirname, 'departments.json'), 'w') as f:
             json.dump(subjects_under_department, f)
 
     # Get all courses under a subject, and save Id and title only
@@ -100,7 +101,7 @@ class Course:
                 course_list.append(course_concise)
             all_courses[subject] = course_list
         self.with_course(append_to_subjects)
-        with open(os.path.join(self.dirname, 'subjcet_courses.json'), 'w') as f:
+        with open(os.path.join(self.data_dirname, 'subjcet_courses.json'), 'w') as f:
             json.dump(all_courses, f)
 
     # Get all lecturer name
@@ -123,7 +124,7 @@ class Course:
                     occurrence[part] = True
         self.with_course_section(append_to_instructors)
         print(f"Found {len(instructors)} instructors")
-        with open(os.path.join(self.dirname, 'instructors.json'), 'w') as f:
+        with open(os.path.join(self.data_dirname, 'instructors.json'), 'w') as f:
             json.dump(instructors, f)
     
     def remove_empty_courses(self):
@@ -132,6 +133,37 @@ class Course:
                 self.log_file.write(f'Removed empty {subject}.json')
                 os.remove(os.path.join(self.dirname, f'{subject}.json'))
         self.with_course(append_to_remove)
+    
+    def faculty_department_mapping(self):
+        department_list = {}
+        with open(os.path.join(self.data_dirname, 'departments.json'), 'r') as f:
+            department_subjects = json.load(f)
+            for department, subjects in department_subjects.items():
+                department_list[department] = 0 # Need manually edit each field now
+        with open(os.path.join(self.data_dirname, 'faculty_departments.json'), 'w') as f:
+            json.dump(department_list, f)
+    
+    def group_faculty_subjects(self):
+        try:
+            faculty_subjects = {}
+            with open(os.path.join(self.data_dirname, 'faculties.json'), 'r') as f:
+                faculty_keys = json.load(f)
+                faculty_lookup = {}
+                for faculty, key in faculty_keys.items():
+                    faculty_subjects[faculty] = []
+                    faculty_lookup[key] = faculty
+                with open(os.path.join(self.data_dirname, 'faculty_departments.json'), 'r') as f:
+                    department_faculty_mapping = json.load(f)
+                    with open(os.path.join(self.data_dirname, 'departments.json'), 'r') as f:
+                        department_subjects = json.load(f)
+                        for department, faculty_key in department_faculty_mapping.items():
+                            faculty_subjects[faculty_lookup[faculty_key]] += department_subjects[department]
+            with open(os.path.join(self.data_dirname, 'faculty_subjects.json'), 'w') as f:
+                json.dump(faculty_subjects, f)
+        except FileNotFoundError:
+            self.faculty_department_mapping()
+            print('Generated departments mapping, please label with faculty code')
+
 
     def parse_all(self, save=True, manual=True, skip_parsed=False):
         self.get_code_list()
@@ -391,15 +423,16 @@ class Course:
 
 
 
-cusis = Course(dirname='courses', save_captchas=True)
+cusis = Course(save_captchas=True)
 # cusis.parse_all(skip_parsed=True)
 # cusis.search_subject('NURS', manual=False)
-cusis.process_subjects(label_availability=True, concise=True)
+# cusis.process_subjects(label_availability=True, concise=True)
 # cusis.process_faculty_subjects()
 # cusis.process_instructors_name()
 # print(cusis.courses)
 # cusis.remove_empty_courses()
 # cusis.label_non_current_term_courses()
+cusis.group_faculty_subjects()
 cusis.post_processing()
 
 '''

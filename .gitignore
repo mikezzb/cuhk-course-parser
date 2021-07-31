@@ -1,3 +1,6 @@
 courses/
 captchas/
 logs/
+data/*
+!data/faculty_departments.json
+!data/faculties.json
