@@ -4,3 +4,4 @@ logs/
 data/*
 !data/faculty_departments.json
 !data/faculties.json
+!data/faculty_subjects.json

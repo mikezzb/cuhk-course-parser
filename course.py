@@ -70,8 +70,17 @@ class Course:
 
     # Get all department codes
     def process_faculty_subjects(self):
+        subject_department_mapping = {}
         subjects_under_department = {}
-        for k, v in self.faculty_subjects.items():
+        def append_to_mapping(courses, subject, f):
+            for course in courses:
+                if 'academic_group' in course:
+                    subject_department_mapping[subject] = course['academic_group']
+                    break
+        self.with_course(append_to_mapping)
+        with open(os.path.join(self.dirname, 'subjects.json'), 'w') as f:
+            json.dump(subject_department_mapping, f)
+        for k, v in subject_department_mapping.items():
             if v in subjects_under_department:
                 subjects_under_department[v].append(k)
             else:
@@ -158,6 +167,9 @@ class Course:
                         department_subjects = json.load(f)
                         for department, faculty_key in department_faculty_mapping.items():
                             faculty_subjects[faculty_lookup[faculty_key]] += department_subjects[department]
+            for arr in faculty_subjects.values():
+                arr.sort()
+            
             with open(os.path.join(self.data_dirname, 'faculty_subjects.json'), 'w') as f:
                 json.dump(faculty_subjects, f)
         except FileNotFoundError:
