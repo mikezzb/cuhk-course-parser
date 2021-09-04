@@ -193,6 +193,19 @@ class Course:
             self.search_subject(code, save, manual)
         print("Parsing finished!")
 
+    
+    def get_courses_hashset(self):
+        subject_courses_list = {}
+        def append_to_hashset(courses, subject, f):
+            courses_list = []
+            for course in courses:
+                courses_list.append(course["code"])
+            subject_courses_list[subject] = courses_list
+        self.with_course(append_to_hashset)     
+        with open(os.path.join(self.data_dirname, 'subject_course_names.json'), 'w') as f:
+            json.dump(subject_courses_list, f)
+
+
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
             soup = BeautifulSoup(res.text, 'html.parser')
@@ -436,6 +449,8 @@ class Course:
 
 
 cusis = Course(save_captchas=True)
+cusis.parse_all(skip_parsed=True)
+# cusis.search_subject('CHLT')
 # cusis.parse_all(skip_parsed=True)
 # cusis.search_subject('NURS', manual=False)
 # cusis.process_subjects(label_availability=True, concise=True)
@@ -444,7 +459,8 @@ cusis = Course(save_captchas=True)
 # print(cusis.courses)
 # cusis.remove_empty_courses()
 # cusis.label_non_current_term_courses()
-cusis.group_faculty_subjects()
+# cusis.group_faculty_subjects()
+# cusis.get_courses_hashset()
 cusis.post_processing()
 
 '''

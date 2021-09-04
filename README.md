@@ -1,4 +1,4 @@
-# CUHK Course Parser
+# CUHK Course Scraper
 ### Functions
 * `search_subject`: Input desired subject code, e.g. ACCT, parser will save courses under ACCT in `dirname/ACCT.json`.
 
