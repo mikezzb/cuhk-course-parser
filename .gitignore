@@ -1,4 +1,6 @@
 courses/
+courses_old/
+data_old/
 captchas/
 logs/
 data/*

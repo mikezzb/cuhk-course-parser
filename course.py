@@ -10,9 +10,19 @@ import pytesseract
 import json
 import time
 import traceback
+import onnxruntime
+import ddddocr
 
+# Captcha
+onnxruntime.set_default_logger_severity(3)
+ocr = ddddocr.DdddOcr()
+MAX_AUTO_CAPTCHA_ATTEMPTS = 10
+
+# General
 FLUSH = '\x1b[1K\r'
-CURRENT_TERM = "2021-22 Term 1"
+
+# Manual Update Here
+CURRENT_TERM = "2021-22 Term 2"
 
 
 class Course:
@@ -34,6 +44,7 @@ class Course:
         self.dirname = dirname
         self.data_dirname = data_dirname
         self.save_captchas = save_captchas
+        self.auto_captcha_attempts = 0
         if not os.path.isdir(dirname):
             os.mkdir(dirname)
         if not os.path.isdir("captchas"):
@@ -225,8 +236,8 @@ class Course:
                 im.show()
                 captcha = str(input('Input the captcha here: '))
             else:
-                captcha = pytesseract.image_to_string(im) # not working lol, need to do CNN later
-                print(f'Recognized captcha: {captcha}')
+                captcha = ocr.classification(in_memory_file.getvalue())
+                print(f'Recognized captcha: {captcha} (#{self.auto_captcha_attempts})')
             self.form_body.update({
                 'hf_Captcha': captcha_id,
                 'txt_captcha': captcha,
@@ -264,14 +275,19 @@ class Course:
                 with closing(self.sess.post(self.course_url, headers=self.form_headers, data=form_body)) as res:
                     correct_captcha = self.parse_subject_courses(subject, res.text, save)
                     if correct_captcha:
+                        self.auto_captcha_attempts = 0
                         if self.save_captchas:
                             # Save image & label here as training dataset
                             filename = str(int(time.time()))
                             im.save(f"captchas/{self.form_body['txt_captcha']}_{filename}.png")   
                         break
                     else:
-                        print('Wrong captcha!' if manual else 'Unable to decode the captcha, please enter manually!')
-                        manual = True
+                        if not manual:
+                            self.auto_captcha_attempts += 1
+                            if self.auto_captcha_attempts > MAX_AUTO_CAPTCHA_ATTEMPTS:
+                                print(f'Reached max attempt of {MAX_AUTO_CAPTCHA_ATTEMPTS}, please enter manually!')
+                                manual = True
+                        print('Wrong captcha!')
     
     def parse_subject_courses(self, subject, html, save): # parse the courses under a subject and get details of each course
         global FLUSH
@@ -449,8 +465,7 @@ class Course:
 
 
 cusis = Course(save_captchas=True)
-cusis.parse_all(skip_parsed=True)
-# cusis.search_subject('CHLT')
+cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.parse_all(skip_parsed=True)
 # cusis.search_subject('NURS', manual=False)
 # cusis.process_subjects(label_availability=True, concise=True)
