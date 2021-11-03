@@ -58,8 +58,18 @@ class Course:
         except FileNotFoundError:
             self.faculty_subjects = {}
 
-    def post_processing(self):
+    def post_processing(self, stat=False):
+        if stat:
+            self.generate_stat()
         self.log_file.close()
+    
+    def generate_stat(self):
+        self.remove_empty_courses()
+        self.process_subjects(label_availability=True, concise=True)
+        self.process_faculty_subjects()
+        self.process_instructors_name()
+        self.group_faculty_subjects()
+        self.get_courses_hashset()
 
     def with_course(self, fn):
         with os.scandir(self.dirname) as it:
@@ -121,31 +131,28 @@ class Course:
                 course_list.append(course_concise)
             all_courses[subject] = course_list
         self.with_course(append_to_subjects)
-        with open(os.path.join(self.data_dirname, 'subjcet_courses.json'), 'w') as f:
+        with open(os.path.join(self.data_dirname, 'course_list.json'), 'w') as f:
             json.dump(all_courses, f)
 
     # Get all lecturer name
     def process_instructors_name(self):
         TITLE_PREFIXS = ['Ms', 'Dr', 'Mr', 'Miss', 'Professor']
         REMOVE_TITLE_REGEX = r'\b(?:' + '|'.join(TITLE_PREFIXS) + r')\.\s*'
-        CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
-        occurrence = {}
-        instructors=[]
+        CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r', '\n\n'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
+        instructors = set()
         def append_to_instructors(section, course):
            for instructor in section['instructors']:
                 # Remove the title
                 instructor = re.sub(REMOVE_TITLE_REGEX, '', instructor)
                 instructor = re.sub(CLEANING_REGEX, '', instructor).strip()
                 # Split for multiple instructors in one section
-                for part in instructor.split(', '):    
-                    if part in occurrence:
-                        continue
-                    instructors.append(part)
-                    occurrence[part] = True
+                for part in instructor.split(', '):
+                    instructors.add(part)
+
         self.with_course_section(append_to_instructors)
         print(f"Found {len(instructors)} instructors")
         with open(os.path.join(self.data_dirname, 'instructors.json'), 'w') as f:
-            json.dump(instructors, f)
+            json.dump(list(instructors), f)
     
     def remove_empty_courses(self):
         def append_to_remove(courses, subject, f):
@@ -465,21 +472,11 @@ class Course:
 
 
 cusis = Course(save_captchas=True)
-cusis.parse_all(skip_parsed=True, manual=False)
-# cusis.parse_all(skip_parsed=True)
+# cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
-# cusis.process_subjects(label_availability=True, concise=True)
-# cusis.process_faculty_subjects()
-# cusis.process_instructors_name()
-# print(cusis.courses)
-# cusis.remove_empty_courses()
-# cusis.label_non_current_term_courses()
-# cusis.group_faculty_subjects()
-# cusis.get_courses_hashset()
-cusis.post_processing()
+cusis.post_processing(stat=True)
 
 '''
 TODO
 1. replace special char in outcome and syllabus with sth normal
-2. Auto captcha
 '''
