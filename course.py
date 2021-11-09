@@ -1,3 +1,4 @@
+from typing import Union
 import requests
 from PIL import Image
 from bs4 import BeautifulSoup
@@ -6,17 +7,17 @@ import re
 import io
 import sys
 import os
-import pytesseract
 import json
 import time
 import traceback
 import onnxruntime
 import ddddocr
+from utils import make_dirs, parse_days_and_times
 
 # Captcha
 onnxruntime.set_default_logger_severity(3)
 ocr = ddddocr.DdddOcr()
-MAX_AUTO_CAPTCHA_ATTEMPTS = 10
+MAX_AUTO_CAPTCHA_ATTEMPTS = 16
 
 # General
 FLUSH = '\x1b[1K\r'
@@ -24,9 +25,10 @@ FLUSH = '\x1b[1K\r'
 # Manual Update Here
 CURRENT_TERM = "2021-22 Term 2"
 
-
 class Course:
-    def __init__(self, dirname='courses', data_dirname='data', save_captchas=False):
+    def __init__(self, dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', save_captchas=True, timestamp: Union[str, bool]=False):
+        now = str(int(time.time())) if type(timestamp) is bool else timestamp
+        self.dir_prefix = os.path.join(dirname, now)
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9'
@@ -41,22 +43,19 @@ class Course:
         self.sess = requests.Session()
         self.courses = {}
         self.form_body = {}
-        self.dirname = dirname
-        self.data_dirname = data_dirname
+        self.statics_dirname = statics_dirname
+        self.course_dirname = os.path.join(self.dir_prefix, course_dirname)
+        self.derived_dirname = os.path.join(self.dir_prefix, derived_dirname)
         self.save_captchas = save_captchas
         self.auto_captcha_attempts = 0
-        if not os.path.isdir(dirname):
-            os.mkdir(dirname)
-        if not os.path.isdir("captchas"):
-            os.mkdir("captchas")
-        if not os.path.isdir("logs"):
-            os.mkdir("logs")
-        self.log_file = open(os.path.join('logs', f'parser-{str(int(time.time()))}.log'), 'w')
+        make_dirs([self.dir_prefix, self.course_dirname, self.derived_dirname, self.statics_dirname, 'captchas', 'logs'])
+        self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
-            with open(os.path.join(self.data_dirname, 'subjects.json'), 'r') as f:
-                self.faculty_subjects = json.load(f)
+            # Need to accumulate instructors for ppl to write reviews for prev courses
+            with open(os.path.join('data/1630541689/derived', 'instructors.json'), 'r') as f:
+                self.instructors = json.load(f)
         except FileNotFoundError:
-            self.faculty_subjects = {}
+            self.instructors = []
 
     def post_processing(self, stat=False):
         if stat:
@@ -66,16 +65,17 @@ class Course:
     def generate_stat(self):
         self.remove_empty_courses()
         self.process_subjects(label_availability=True, concise=True)
-        self.process_faculty_subjects()
         self.process_instructors_name()
-        self.group_faculty_subjects()
-        self.get_courses_hashset()
+        # Below for frontend only, and no need update per sem unless faculty changed / new course code
+        # self.process_faculty_subjects()
+        # self.group_faculty_subjects()
+        # self.get_courses_hashset()
 
     def with_course(self, fn):
-        with os.scandir(self.dirname) as it:
+        with os.scandir(self.course_dirname) as it:
             for entry in it:
                 with open(entry.path, 'r') as f:
-                    filename = entry.path[(len(self.dirname)+1):-5]
+                    filename = entry.path[(len(self.course_dirname)+1):-5]
                     if(len(filename) == 4): # i.e. filename is a valid subject code
                         courses = json.load(f)
                         fn(courses, filename, f)
@@ -99,7 +99,7 @@ class Course:
                     subject_department_mapping[subject] = course['academic_group']
                     break
         self.with_course(append_to_mapping)
-        with open(os.path.join(self.dirname, 'subjects.json'), 'w') as f:
+        with open(os.path.join(self.derived_dirname, 'subjects.json'), 'w') as f:
             json.dump(subject_department_mapping, f)
         for k, v in subject_department_mapping.items():
             if v in subjects_under_department:
@@ -107,7 +107,7 @@ class Course:
             else:
                 subjects_under_department[v] = [k]
         print(f'Number of departments: {len(subjects_under_department)}')
-        with open(os.path.join(self.data_dirname, 'departments.json'), 'w') as f:
+        with open(os.path.join(self.derived_dirname, 'departments.json'), 'w') as f:
             json.dump(subjects_under_department, f)
 
     # Get all courses under a subject, and save Id and title only
@@ -131,15 +131,15 @@ class Course:
                 course_list.append(course_concise)
             all_courses[subject] = course_list
         self.with_course(append_to_subjects)
-        with open(os.path.join(self.data_dirname, 'course_list.json'), 'w') as f:
+        with open(os.path.join(self.derived_dirname, 'course_list.json'), 'w') as f:
             json.dump(all_courses, f)
 
     # Get all lecturer name
     def process_instructors_name(self):
         TITLE_PREFIXS = ['Ms', 'Dr', 'Mr', 'Miss', 'Professor']
         REMOVE_TITLE_REGEX = r'\b(?:' + '|'.join(TITLE_PREFIXS) + r')\.\s*'
-        CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r', '\n\n'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
-        instructors = set()
+        CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r', '\n\n', '***'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
+        instructors = set(self.instructors)
         def append_to_instructors(section, course):
            for instructor in section['instructors']:
                 # Remove the title
@@ -151,44 +151,44 @@ class Course:
 
         self.with_course_section(append_to_instructors)
         print(f"Found {len(instructors)} instructors")
-        with open(os.path.join(self.data_dirname, 'instructors.json'), 'w') as f:
+        with open(os.path.join(self.derived_dirname, 'instructors.json'), 'w') as f:
             json.dump(list(instructors), f)
     
     def remove_empty_courses(self):
         def append_to_remove(courses, subject, f):
             if not courses or len(courses) == 0:
                 self.log_file.write(f'Removed empty {subject}.json')
-                os.remove(os.path.join(self.dirname, f'{subject}.json'))
+                os.remove(os.path.join(self.course_dirname, f'{subject}.json'))
         self.with_course(append_to_remove)
     
     def faculty_department_mapping(self):
         department_list = {}
-        with open(os.path.join(self.data_dirname, 'departments.json'), 'r') as f:
+        with open(os.path.join(self.derived_dirname, 'departments.json'), 'r') as f:
             department_subjects = json.load(f)
             for department, subjects in department_subjects.items():
                 department_list[department] = 0 # Need manually edit each field now
-        with open(os.path.join(self.data_dirname, 'faculty_departments.json'), 'w') as f:
+        with open(os.path.join(self.statics_dirname, 'faculty_departments.json'), 'w') as f:
             json.dump(department_list, f)
     
     def group_faculty_subjects(self):
         try:
             faculty_subjects = {}
-            with open(os.path.join(self.data_dirname, 'faculties.json'), 'r') as f:
+            with open(os.path.join(self.statics_dirname, 'faculties.json'), 'r') as f:
                 faculty_keys = json.load(f)
                 faculty_lookup = {}
                 for faculty, key in faculty_keys.items():
                     faculty_subjects[faculty] = []
                     faculty_lookup[key] = faculty
-                with open(os.path.join(self.data_dirname, 'faculty_departments.json'), 'r') as f:
+                with open(os.path.join(self.statics_dirname, 'faculty_departments.json'), 'r') as f:
                     department_faculty_mapping = json.load(f)
-                    with open(os.path.join(self.data_dirname, 'departments.json'), 'r') as f:
+                    with open(os.path.join(self.derived_dirname, 'departments.json'), 'r') as f:
                         department_subjects = json.load(f)
                         for department, faculty_key in department_faculty_mapping.items():
                             faculty_subjects[faculty_lookup[faculty_key]] += department_subjects[department]
             for arr in faculty_subjects.values():
                 arr.sort()
             
-            with open(os.path.join(self.data_dirname, 'faculty_subjects.json'), 'w') as f:
+            with open(os.path.join(self.derived_dirname, 'faculty_subjects.json'), 'w') as f:
                 json.dump(faculty_subjects, f)
         except FileNotFoundError:
             self.faculty_department_mapping()
@@ -200,9 +200,9 @@ class Course:
         print(f'Parsing courses for all {len(self.code_list)} subjects, {"skip if already existed" if skip_parsed else ""}')
         parsed_subjects = {}
         if skip_parsed:
-            with os.scandir(self.dirname) as it:
+            with os.scandir(self.course_dirname) as it:
                 for entry in it:
-                    subject = entry.path[(len(self.dirname)+1):-5]
+                    subject = entry.path[(len(self.course_dirname)+1):-5]
                     parsed_subjects[subject] = True
         for code in self.code_list:
             if skip_parsed and code in parsed_subjects:
@@ -220,7 +220,7 @@ class Course:
                 courses_list.append(course["code"])
             subject_courses_list[subject] = courses_list
         self.with_course(append_to_hashset)     
-        with open(os.path.join(self.data_dirname, 'subject_course_names.json'), 'w') as f:
+        with open(os.path.join(self.derived_dirname, 'subject_course_names.json'), 'w') as f:
             json.dump(subject_courses_list, f)
 
 
@@ -320,16 +320,12 @@ class Course:
             form_body.update(self.form_body)
             with closing(self.sess.post(self.course_url, headers=self.headers, data=form_body)) as res:
                 course_detail = self.parse_course_detail(res.text, subject + course['code'])
-                if not subject in self.faculty_subjects and 'academic_group' in course_detail:
-                    self.faculty_subjects[subject] = course_detail['academic_group']
-                    with open(os.path.join(self.dirname, 'subjects.json'), 'w') as f:
-                        json.dump(self.faculty_subjects, f)
                 course.update(course_detail)
             course_list.append(course)
-        print(f'{FLUSH}Saved {len(course_list)} {subject} courses in {os.path.join(self.dirname, subject)}.json')
+        print(f'{FLUSH}Saved {len(course_list)} {subject} courses in {os.path.join(self.course_dirname, subject)}.json')
         course_list = sorted(course_list, key=lambda x:x['code'])
         if save:
-            with open(os.path.join(self.dirname, f'{subject}.json'), 'w') as f:
+            with open(os.path.join(self.course_dirname, f'{subject}.json'), 'w') as f:
                 json.dump(course_list, f)
         self.courses[subject] = course_list
         return True
@@ -425,7 +421,7 @@ class Course:
             timeslots = children[2].findChildren('tr') # each tr is a teaching timeslot, e.g. Wed and Thu Lectures are two teaching timelot
             for node in timeslots:
                 details = list(filter(lambda x: x!='\n', node.get_text(';').split(';'))) # 0: days & time 1: Room 2: Instructor 3: part of teaching date
-                days_and_times = self.parse_days_and_times(details[0])
+                days_and_times = parse_days_and_times(details[0])
                 if days_and_times[0] in days and days_and_times[1] in start_times: # i.e. duplicated
                     continue
                 days.append(days_and_times[0])
@@ -444,34 +440,7 @@ class Course:
             }
         return course_sections
 
-    def parse_days_and_times(self, s: str) -> tuple:
-        if s == 'TBA':
-            return ('TBA', 'TBA', 'TBA')
-        def to_24_hours(s: str):
-            if 'PM' in s:
-                s = s.replace('PM','')
-                t = s.split(':')
-                if t[0] != '12':
-                    t[0] = str(int(t[0])+12)
-                    s = ':'.join(t)
-            else:
-                s = s.replace('AM','')
-            return s
-        days_dict = {
-            'Mo': 1,
-            'Tu': 2,
-            'We': 3,
-            'Th': 4,
-            'Fr': 5,
-            'Sa': 6,
-            'Su': 0,
-        }
-        raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
-        return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
-
-
-
-cusis = Course(save_captchas=True)
+cusis = Course(save_captchas=True, timestamp='1636370428')
 # cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
 cusis.post_processing(stat=True)

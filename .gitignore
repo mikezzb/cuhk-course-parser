@@ -1,9 +1,5 @@
-courses/
-courses_old/
-data_old/
+courses*/
 captchas/
 logs/
-data/*
-!data/faculty_departments.json
-!data/faculties.json
-!data/faculty_subjects.json
+data*/
+__pycache__
