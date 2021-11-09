@@ -197,17 +197,19 @@ class Course:
 
     def parse_all(self, save=True, manual=True, skip_parsed=False):
         self.get_code_list()
-        print(f'Parsing courses for all {len(self.code_list)} subjects, {"skip if already existed" if skip_parsed else ""}')
+        num_subjects = len(self.code_list)
+        print(f'Parsing courses for all {num_subjects} subjects, {"skip if already existed" if skip_parsed else ""}')
         parsed_subjects = {}
         if skip_parsed:
             with os.scandir(self.course_dirname) as it:
                 for entry in it:
                     subject = entry.path[(len(self.course_dirname)+1):-5]
                     parsed_subjects[subject] = True
-        for code in self.code_list:
+        for idx, code in enumerate(self.code_list, start=1):
             if skip_parsed and code in parsed_subjects:
-                print(f'{code} found in dir, skipped parsing')
+                print(f'({idx}/{num_subjects}) {code} found in dir, skipped parsing')
                 continue
+            print(f'({idx}/{num_subjects})', end=' ')
             self.search_subject(code, save, manual)
         print("Parsing finished!")
 
@@ -440,11 +442,11 @@ class Course:
             }
         return course_sections
 
-cusis = Course(save_captchas=True, timestamp='1636370428')
-# cusis.parse_all(skip_parsed=True, manual=False)
+cusis = Course(save_captchas=True)
+cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
 cusis.post_processing(stat=True)
-
+# , timestamp='1636370428'
 '''
 TODO
 1. replace special char in outcome and syllabus with sth normal
