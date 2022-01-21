@@ -96,5 +96,4 @@ Saved 10 AIST courses in courses/AIST.json
 ```
 
 ### Todo
-1. Auto captcha
-2. Replace special chars in fields like outcome and syllabus with something normal
+1. Replace special chars in fields like outcome and syllabus with something normal

@@ -13,6 +13,7 @@ import traceback
 import onnxruntime
 import ddddocr
 from utils import make_dirs, parse_days_and_times
+from functools import reduce
 
 # Captcha
 onnxruntime.set_default_logger_severity(3)
@@ -88,7 +89,13 @@ class Course:
                         for section in term.values():
                             fn(section, course)
         self.with_course(append_to_sections)
-
+    
+    def info(self):
+        c = {}
+        def _info(courses, filename, file):
+            c[filename] = courses
+        self.with_course(_info)
+        print(f"# courses: {reduce(lambda a, x: a + len(x), c.values(), 0)}")
     # Get all department codes
     def process_faculty_subjects(self):
         subject_department_mapping = {}
@@ -157,7 +164,7 @@ class Course:
     def remove_empty_courses(self):
         def append_to_remove(courses, subject, f):
             if not courses or len(courses) == 0:
-                self.log_file.write(f'Removed empty {subject}.json')
+                self.log_file.write(f'Removed empty {subject}.json\n')
                 os.remove(os.path.join(self.course_dirname, f'{subject}.json'))
         self.with_course(append_to_remove)
     
@@ -445,8 +452,8 @@ class Course:
 cusis = Course(save_captchas=True)
 cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
-cusis.post_processing(stat=True)
-# , timestamp='1636370428'
+# cusis.post_processing(stat=True)
+# cusis.info()
 '''
 TODO
 1. replace special char in outcome and syllabus with sth normal
