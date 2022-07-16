@@ -61,16 +61,15 @@ class Course:
     def post_processing(self, stat=False):
         if stat:
             self.generate_stat()
-        self.log_file.close()
     
     def generate_stat(self):
         self.remove_empty_courses()
         self.process_subjects(label_availability=True, concise=True)
         self.process_instructors_name()
         # Below for frontend only, and no need update per sem unless faculty changed / new course code
-        # self.process_faculty_subjects()
-        # self.group_faculty_subjects()
-        # self.get_courses_hashset()
+        self.process_faculty_subjects()
+        self.group_faculty_subjects()
+        self.get_courses_hashset()
 
     def with_course(self, fn):
         with os.scandir(self.course_dirname) as it:
@@ -220,8 +219,8 @@ class Course:
             print(f'({idx}/{num_subjects})', end=' ')
             self.search_subject(code, save, manual)
         print("Parsing finished!")
+        self.log_file.close()
 
-    
     def get_courses_hashset(self):
         subject_courses_list = {}
         def append_to_hashset(courses, subject, f):
@@ -232,7 +231,6 @@ class Course:
         self.with_course(append_to_hashset)     
         with open(os.path.join(self.derived_dirname, 'subject_course_names.json'), 'w') as f:
             json.dump(subject_courses_list, f)
-
 
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
@@ -451,7 +449,7 @@ class Course:
         return course_sections
 
 cusis = Course(save_captchas=True, timestamp="1657815403")
-# cusis.parse_all(skip_parsed=True, manual=False)
+cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
 cusis.post_processing(stat=True)
 # cusis.info()
