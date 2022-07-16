@@ -134,7 +134,8 @@ class Course:
                             if term == CURRENT_TERM:
                                 avaliable = True
                                 break
-                    course_concise['offerring' if not concise else 'o'] = 1 if avaliable else 0
+                    if avaliable:
+                        course_concise['offerring' if not concise else 'o'] = 1
                 course_list.append(course_concise)
             all_courses[subject] = course_list
         self.with_course(append_to_subjects)
@@ -449,10 +450,10 @@ class Course:
             }
         return course_sections
 
-cusis = Course(save_captchas=True)
-cusis.parse_all(skip_parsed=True, manual=False)
+cusis = Course(save_captchas=True, timestamp="1657815403")
+# cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
-# cusis.post_processing(stat=True)
+cusis.post_processing(stat=True)
 # cusis.info()
 '''
 TODO
