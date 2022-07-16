@@ -24,10 +24,10 @@ MAX_AUTO_CAPTCHA_ATTEMPTS = 16
 FLUSH = '\x1b[1K\r'
 
 # Manual Update Here
-CURRENT_TERM = "2021-22 Term 2"
+CURRENT_TERM = "2022-23 Term 1"
 
 class Course:
-    def __init__(self, dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', save_captchas=True, timestamp: Union[str, bool]=False):
+    def __init__(self, dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=True, timestamp: Union[str, bool]=False):
         now = str(int(time.time())) if type(timestamp) is bool else timestamp
         self.dir_prefix = os.path.join(dirname, now)
         self.headers = {
@@ -47,9 +47,10 @@ class Course:
         self.statics_dirname = statics_dirname
         self.course_dirname = os.path.join(self.dir_prefix, course_dirname)
         self.derived_dirname = os.path.join(self.dir_prefix, derived_dirname)
+        self.resources_dirname = os.path.join(self.dir_prefix, resources_dirname)
         self.save_captchas = save_captchas
         self.auto_captcha_attempts = 0
-        make_dirs([self.dir_prefix, self.course_dirname, self.derived_dirname, self.statics_dirname, 'captchas', 'logs'])
+        make_dirs([self.dir_prefix, self.course_dirname, self.derived_dirname, self.statics_dirname, self.resources_dirname, 'captchas', 'logs'])
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
             # Need to accumulate instructors for ppl to write reviews for prev courses
@@ -61,6 +62,8 @@ class Course:
     def post_processing(self, stat=False):
         if stat:
             self.generate_stat()
+        # Make the output data dir for FE & BE to use
+
     
     def generate_stat(self):
         self.remove_empty_courses()
@@ -138,7 +141,7 @@ class Course:
                 course_list.append(course_concise)
             all_courses[subject] = course_list
         self.with_course(append_to_subjects)
-        with open(os.path.join(self.derived_dirname, 'course_list.json'), 'w') as f:
+        with open(os.path.join(self.resources_dirname, 'course_list.json'), 'w') as f:
             json.dump(all_courses, f)
 
     # Get all lecturer name
@@ -158,7 +161,7 @@ class Course:
 
         self.with_course_section(append_to_instructors)
         print(f"Found {len(instructors)} instructors")
-        with open(os.path.join(self.derived_dirname, 'instructors.json'), 'w') as f:
+        with open(os.path.join(self.resources_dirname, 'instructors.json'), 'w') as f:
             json.dump(list(instructors), f)
     
     def remove_empty_courses(self):
@@ -223,14 +226,20 @@ class Course:
 
     def get_courses_hashset(self):
         subject_courses_list = {}
+        full_name_courses = []
         def append_to_hashset(courses, subject, f):
             courses_list = []
             for course in courses:
-                courses_list.append(course["code"])
+                code = course["code"]
+                courses_list.append(code)
+                full_name_courses.append(f"{subject}{code}")
             subject_courses_list[subject] = courses_list
         self.with_course(append_to_hashset)     
         with open(os.path.join(self.derived_dirname, 'subject_course_names.json'), 'w') as f:
             json.dump(subject_courses_list, f)
+        # Derive all courses list for FE to use
+        with open(os.path.join(self.derived_dirname, 'courses.json'), 'w') as f:
+            json.dump(full_name_courses, f)
 
     def get_code_list(self):
         with closing(requests.get(self.course_url, headers=self.headers)) as res:
@@ -449,7 +458,7 @@ class Course:
         return course_sections
 
 cusis = Course(save_captchas=True, timestamp="1657815403")
-cusis.parse_all(skip_parsed=True, manual=False)
+# cusis.parse_all(skip_parsed=True, manual=False)
 # cusis.search_subject('NURS', manual=False)
 cusis.post_processing(stat=True)
 # cusis.info()
