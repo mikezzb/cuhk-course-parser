@@ -146,7 +146,7 @@ class Course:
 
     # Get all lecturer name
     def process_instructors_name(self):
-        TITLE_PREFIXS = ['Ms', 'Dr', 'Mr', 'Miss', 'Professor']
+        TITLE_PREFIXS = ['Ms', 'Dr', 'Mr', 'Miss', 'Professor', 'Prof']
         REMOVE_TITLE_REGEX = r'\b(?:' + '|'.join(TITLE_PREFIXS) + r')\.\s*'
         CLEANING_REGEX = r'|'.join(map(re.escape, ['.', '\n\r', '\n\n', '***'] + list(map(lambda x: f"{x} ", TITLE_PREFIXS))))
         instructors = set(self.instructors)
