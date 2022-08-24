@@ -222,7 +222,6 @@ class Course:
             print(f'({idx}/{num_subjects})', end=' ')
             self.search_subject(code, save, manual)
         print("Parsing finished!")
-        self.log_file.close()
 
     def get_courses_hashset(self):
         subject_courses_list = {}
@@ -457,11 +456,11 @@ class Course:
             }
         return course_sections
 
-cusis = Course(save_captchas=True, timestamp="1657815403")
-# cusis.parse_all(skip_parsed=True, manual=False)
-# cusis.search_subject('NURS', manual=False)
-cusis.post_processing(stat=True)
-# cusis.info()
+cs = Course(save_captchas=True, timestamp="1661320080")
+cs.parse_all(skip_parsed=True, manual=False)
+# cs.search_subject('NURS', manual=False)
+cs.post_processing(stat=True)
+# cs.info()
 '''
 TODO
 1. replace special char in outcome and syllabus with sth normal
