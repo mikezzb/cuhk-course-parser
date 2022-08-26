@@ -471,9 +471,9 @@ class Course:
 
         return course_sections
 
-cs = Course(save_captchas=True, timestamp="1661320080")
-# cs.parse_all(skip_parsed=True, manual=False)
-cs.search_subject('ELTU', manual=False)
+cs = Course(save_captchas=True)
+cs.parse_all(skip_parsed=True, manual=False)
+# cs.search_subject('ELTU', manual=False)
 cs.post_processing(stat=True)
 # cs.info()
 '''
