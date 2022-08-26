@@ -375,9 +375,10 @@ class Course:
         try: 
             term_selection_options = soup.select_one('#uc_course_ddl_class_term').findChildren('option', recursive=False)
             terms = {}
+            offered = False
             for term_node in term_selection_options:
                 if term_node.has_attr('selected'):
-                    course_sections = self.parse_sections(soup)
+                    course_sections = self.parse_sections(course_id, soup)
                 else:
                     # post form request to get schedule for non-default term
                     form = {
@@ -387,11 +388,13 @@ class Course:
                     form.update(self.update_form(soup, update=False))
                     with closing(self.sess.post(self.course_url, headers=self.headers, data=form)) as res:
                         soup_alt = BeautifulSoup(res.text, 'html.parser')
-                        course_sections = self.parse_sections(soup_alt)
+                        course_sections = self.parse_sections(course_id, soup_alt)
                     pass
-                terms[term_node.text] = course_sections
-            
-            course_detail['terms'] = terms
+                if course_sections:
+                    offered = True
+                    terms[term_node.text] = course_sections
+            if offered:
+                course_detail['terms'] = terms
             # Get course outcome for the course
             form = {
                 'btn_course_outcome': 'Course Outcome',
@@ -415,8 +418,11 @@ class Course:
                     td_nodes = tr.select('td')
                     assessments[td_nodes[1].text] = td_nodes[2].text
                 course_detail['assessments'] = assessments
-        except AttributeError:
+        except AttributeError as e:
             # Probably just missing some non-mandatory fields
+            # print('Error parsing terms for this course')
+            self.log_file.write(f'Error parsing course terms for {course_id}: {str(e)}\n')
+            self.log_file.write(traceback.format_exc())
             pass
         except Exception as e:
             print('Error parsing section / outcome for this course')
@@ -425,40 +431,49 @@ class Course:
             pass
         return course_detail
 
-    def parse_sections(self, soup: BeautifulSoup) -> dict:
+    def parse_sections(self, course_id: str, soup: BeautifulSoup) -> dict:
         course_sections = {}
-        course_sections_table = soup.select_one('#uc_course_gv_sched').findChildren('tr', recursive=False)
+        course_sections_table_container = soup.select_one('#uc_course_gv_sched')
+        if not course_sections_table_container: return None
+        course_sections_table = course_sections_table_container.findChildren('tr', recursive=False)
         course_sections_table.pop(0) # remove the header node
         for schedule in course_sections_table:
-            # schedule is a <tr> tag with 3 children, first is the section code, second is the reg status, last is course detail table
-            children = schedule.findChildren('td', recursive=False)
-            section = children[0].text.strip('\n')
-            start_times, end_times, days, locations, instructors, meeting_dates = [], [], [], [], [], ''
-            timeslots = children[2].findChildren('tr') # each tr is a teaching timeslot, e.g. Wed and Thu Lectures are two teaching timelot
-            for node in timeslots:
-                details = list(filter(lambda x: x!='\n', node.get_text(';').split(';'))) # 0: days & time 1: Room 2: Instructor 3: part of teaching date
-                days_and_times = parse_days_and_times(details[0])
-                if days_and_times[0] in days and days_and_times[1] in start_times: # i.e. duplicated
-                    continue
-                days.append(days_and_times[0])
-                start_times.append(days_and_times[1])
-                end_times.append(days_and_times[2])
-                locations.append(details[1])
-                instructors.append(details[2])
-                meeting_dates += f', {details[3]}'
-            course_sections[section] = {
-                'startTimes': start_times,
-                'endTimes': end_times,
-                'days': days,
-                'locations': locations,
-                'instructors': instructors,
-                'meetingDates': list(filter(None, meeting_dates.split(', '))),
-            }
+            try:
+                # schedule is a <tr> tag with 3 children, first is the section code, second is the reg status, last is course detail table
+                children = schedule.findChildren('td', recursive=False)
+                section = children[0].text.strip('\n')
+                start_times, end_times, days, locations, instructors, meeting_dates = [], [], [], [], [], ''
+                timeslots = children[2].findChildren('tr') # each tr is a teaching timeslot, e.g. Wed and Thu Lectures are two teaching timelot
+                for node in timeslots:
+                    details = list(filter(lambda x: x!='\n', node.get_text(';').split(';'))) # 0: days & time 1: Room 2: Instructor 3: part of teaching date
+                    days_and_times = parse_days_and_times(details[0])
+                    if days_and_times[0] in days and days_and_times[1] in start_times: # i.e. duplicated
+                        continue
+                    days.append(days_and_times[0])
+                    start_times.append(days_and_times[1])
+                    end_times.append(days_and_times[2])
+                    locations.append(details[1])
+                    instructors.append(details[2])
+                    meeting_dates += f', {details[3]}'
+                course_sections[section] = {
+                    'startTimes': start_times,
+                    'endTimes': end_times,
+                    'days': days,
+                    'locations': locations,
+                    'instructors': instructors,
+                    'meetingDates': list(filter(None, meeting_dates.split(', '))),
+                }
+            except Exception as e:
+                # Probably just missing some non-mandatory fields
+                self.log_file.write(f'Error parsing course section for {course_id}: {str(e)}\n')
+                self.log_file.write(traceback.format_exc())
+                pass
+
         return course_sections
 
 cs = Course(save_captchas=True, timestamp="1661320080")
-cs.parse_all(skip_parsed=True, manual=False)
-# cs.search_subject('NURS', manual=False)
+# cs.parse_all(skip_parsed=True, manual=False)
+cs.search_subject('ELTU', manual=False)
 cs.post_processing(stat=True)
 # cs.info()
 '''
