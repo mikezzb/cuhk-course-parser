@@ -25,9 +25,10 @@ MAX_AUTO_CAPTCHA_ATTEMPTS = 16
 FLUSH = '\x1b[1K\r'
 
 class CourseScraper:
-    def __init__(self, current_term="2022-23 Term 1", dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=False, timestamp: Union[str, bool]=False):
+    def __init__(self, current_term="2022-23 Term 1", merge_dir='../data', dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=False, timestamp: Union[str, bool]=False):
         now = str(int(time.time())) if type(timestamp) is bool else timestamp
         self.dir_prefix = os.path.join(dirname, now)
+        self.timestamp = now
         self.current_term = current_term
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 11_1_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/87.0.4280.88 Safari/537.36',
@@ -53,7 +54,7 @@ class CourseScraper:
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
             # Need to accumulate instructors for ppl to write reviews for prev courses
-            with open(os.path.join('data/1630541689/derived', 'instructors.json'), 'r') as f:
+            with open(os.path.join(merge_dir, 'instructors.json'), 'r') as f:
                 self.instructors = json.load(f)
         except FileNotFoundError:
             self.instructors = []
@@ -221,7 +222,8 @@ class CourseScraper:
                     continue
                 print(f'({idx}/{num_subjects})', end=' ')
                 self.search_subject(code, save, manual)
-        print("Parsing finished!")
+        print(f"Done! Saved at {self.dir_prefix}")
+        return self.timestamp
 
     def get_courses_hashset(self):
         subject_courses_list = {}
