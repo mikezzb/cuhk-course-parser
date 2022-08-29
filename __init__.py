@@ -54,7 +54,7 @@ class CourseScraper:
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
             # Need to accumulate instructors for ppl to write reviews for prev courses
-            with open(os.path.join(merge_dir, 'instructors.json'), 'r') as f:
+            with open(os.path.join(merge_dir, 'derived/instructors.json'), 'r') as f:
                 self.instructors = json.load(f)
         except FileNotFoundError:
             self.instructors = []
