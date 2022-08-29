@@ -54,7 +54,7 @@ class CourseScraper:
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
             # Need to accumulate instructors for ppl to write reviews for prev courses
-            with open(os.path.join(merge_dir, 'derived/instructors.json'), 'r') as f:
+            with open(os.path.join(merge_dir, 'resources/instructors.json'), 'r') as f:
                 self.instructors = json.load(f)
         except FileNotFoundError:
             self.instructors = []
@@ -97,7 +97,7 @@ class CourseScraper:
         def _info(courses, filename, file):
             c[filename] = courses
         self.with_course(_info)
-        print(f"# courses: {reduce(lambda a, x: a + len(x), c.values(), 0)}")
+        print(f"Number of courses: {reduce(lambda a, x: a + len(x), c.values(), 0)}")
     # Get all department codes
     def process_faculty_subjects(self):
         subject_department_mapping = {}
