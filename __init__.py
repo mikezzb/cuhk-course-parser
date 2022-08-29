@@ -3,6 +3,7 @@ import requests
 from PIL import Image
 from bs4 import BeautifulSoup
 from contextlib import closing
+from tqdm import tqdm
 import re
 import io
 import sys
@@ -12,7 +13,7 @@ import time
 import traceback
 import onnxruntime
 import ddddocr
-from .utils import make_dirs, parse_days_and_times
+from .utils import make_dirs, parse_days_and_times, HiddenPrints
 from functools import reduce
 
 # Captcha
@@ -24,7 +25,7 @@ MAX_AUTO_CAPTCHA_ATTEMPTS = 16
 FLUSH = '\x1b[1K\r'
 
 class CourseScraper:
-    def __init__(self, current_term="2022-23 Term 1", dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=True, timestamp: Union[str, bool]=False):
+    def __init__(self, current_term="2022-23 Term 1", dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=False, timestamp: Union[str, bool]=False):
         now = str(int(time.time())) if type(timestamp) is bool else timestamp
         self.dir_prefix = os.path.join(dirname, now)
         self.current_term = current_term
@@ -203,7 +204,7 @@ class CourseScraper:
             print('Generated departments mapping, please label with faculty code')
 
 
-    def parse_all(self, save=True, manual=True, skip_parsed=False):
+    def parse_all(self, save=True, manual=True, skip_parsed=False, verbose=True):
         self.get_code_list()
         num_subjects = len(self.code_list)
         print(f'Parsing courses for all {num_subjects} subjects, {"skip if already existed" if skip_parsed else ""}')
@@ -213,12 +214,13 @@ class CourseScraper:
                 for entry in it:
                     subject = entry.path[(len(self.course_dirname)+1):-5]
                     parsed_subjects[subject] = True
-        for idx, code in enumerate(self.code_list, start=1):
-            if skip_parsed and code in parsed_subjects:
-                print(f'({idx}/{num_subjects}) {code} found in dir, skipped parsing')
-                continue
-            print(f'({idx}/{num_subjects})', end=' ')
-            self.search_subject(code, save, manual)
+        for idx, code in enumerate(tqdm(self.code_list), start=1):
+            with HiddenPrints(not verbose):
+                if skip_parsed and code in parsed_subjects:
+                    print(f'({idx}/{num_subjects}) {code} found in dir, skipped parsing')
+                    continue
+                print(f'({idx}/{num_subjects})', end=' ')
+                self.search_subject(code, save, manual)
         print("Parsing finished!")
 
     def get_courses_hashset(self):
@@ -244,7 +246,7 @@ class CourseScraper:
             code_list = []
             for node in soup.select('#ddl_subject option')[1:]:
                 code_list.append(node.get('value'))
-            print(list(filter(None, code_list)))
+            # print(list(filter(None, code_list)))
             self.code_list = list(filter(None, code_list))
 
     def get_captcha(self, soup:BeautifulSoup, manual=True) -> Image:

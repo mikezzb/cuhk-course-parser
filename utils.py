@@ -29,3 +29,17 @@ def parse_days_and_times(s: str) -> tuple:
     }
     raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
     return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
+import os, sys
+
+class HiddenPrints:
+    def __init__(self, hide = True):
+        self.hide = hide
+    def __enter__(self):
+        if self.hide:
+            self._original_stdout = sys.stdout
+            sys.stdout = open(os.devnull, 'w')
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.hide:
+            sys.stdout.close()
+            sys.stdout = self._original_stdout
