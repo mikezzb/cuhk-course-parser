@@ -12,7 +12,7 @@ import time
 import traceback
 import onnxruntime
 import ddddocr
-from utils import make_dirs, parse_days_and_times
+from .utils import make_dirs, parse_days_and_times
 from functools import reduce
 
 # Captcha
@@ -50,7 +50,7 @@ class CourseScraper:
         self.resources_dirname = os.path.join(self.dir_prefix, resources_dirname)
         self.save_captchas = save_captchas
         self.auto_captcha_attempts = 0
-        make_dirs([self.dir_prefix, self.course_dirname, self.derived_dirname, self.statics_dirname, self.resources_dirname, 'captchas', 'logs'])
+        make_dirs([dirname, self.dir_prefix, self.course_dirname, self.derived_dirname, self.statics_dirname, self.resources_dirname, 'captchas', 'logs'])
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         try:
             # Need to accumulate instructors for ppl to write reviews for prev courses
