@@ -26,7 +26,7 @@ FLUSH = '\x1b[1K\r'
 # Manual Update Here
 CURRENT_TERM = "2022-23 Term 1"
 
-class Course:
+class CourseScraper:
     def __init__(self, dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=True, timestamp: Union[str, bool]=False):
         now = str(int(time.time())) if type(timestamp) is bool else timestamp
         self.dir_prefix = os.path.join(dirname, now)
@@ -470,13 +470,3 @@ class Course:
                 pass
 
         return course_sections
-
-cs = Course(save_captchas=True)
-cs.parse_all(skip_parsed=True, manual=False)
-# cs.search_subject('ELTU', manual=False)
-cs.post_processing(stat=True)
-# cs.info()
-'''
-TODO
-1. replace special char in outcome and syllabus with sth normal
-'''
