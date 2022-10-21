@@ -26,7 +26,7 @@ FLUSH = '\x1b[1K\r'
 
 
 class CourseScraper:
-    def __init__(self, current_term="2022-23 Term 1", merge_dir='../data', dirname='data', course_dirname='courses', derived_dirname='derived', statics_dirname='statics', resources_dirname='resources', save_captchas=False, timestamp: Union[str, bool] = False):
+    def __init__(self, current_term="2022-23 Term 1", merge_dir='../data', dirname='data', course_dirname='courses', derived_dirname='derived', resources_dirname='resources', save_captchas=False, timestamp: Union[str, bool] = False):
         now = str(int(time.time())) if type(timestamp) is bool else timestamp
         self.dir_prefix = os.path.join(dirname, now)
         self.timestamp = now
@@ -45,7 +45,8 @@ class CourseScraper:
         self.sess = requests.Session()
         self.courses = {}
         self.form_body = {}
-        self.statics_dirname = statics_dirname
+        self.stat_dir = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)), 'stat')
         self.course_dirname = os.path.join(self.dir_prefix, course_dirname)
         self.derived_dirname = os.path.join(self.dir_prefix, derived_dirname)
         self.resources_dirname = os.path.join(
@@ -53,7 +54,7 @@ class CourseScraper:
         self.save_captchas = save_captchas
         self.auto_captcha_attempts = 0
         make_dirs([dirname, self.dir_prefix, self.course_dirname, self.derived_dirname,
-                  self.statics_dirname, self.resources_dirname, 'captchas', 'logs'])
+                  self.stat_dir, self.resources_dirname, 'captchas', 'logs'])
         self.log_file = open(os.path.join('logs', f'parser-{now}.log'), 'w')
         self.old_courses_dir = os.path.join(merge_dir, 'courses')
         try:
@@ -191,28 +192,29 @@ class CourseScraper:
             for department, subjects in department_subjects.items():
                 # Need manually edit each field now
                 department_list[department] = 0
-        with open(os.path.join(self.statics_dirname, 'faculty_departments.json'), 'w') as f:
+        with open(os.path.join(self.stat_dir, 'faculty_departments.json'), 'w') as f:
             json.dump(department_list, f)
 
     def group_faculty_subjects(self):
         try:
             faculty_subjects = {}
-            with open(os.path.join(self.statics_dirname, 'faculties.json'), 'r') as f:
+            with open(os.path.join(self.stat_dir, 'faculties.json'), 'r') as f:
                 faculty_keys = json.load(f)
                 faculty_lookup = {}
                 for faculty, key in faculty_keys.items():
                     faculty_subjects[faculty] = []
                     faculty_lookup[key] = faculty
-                with open(os.path.join(self.statics_dirname, 'faculty_departments.json'), 'r') as f:
+                with open(os.path.join(self.stat_dir, 'faculty_departments.json'), 'r') as f:
                     department_faculty_mapping = json.load(f)
                     with open(os.path.join(self.derived_dirname, 'departments.json'), 'r') as f:
                         department_subjects = json.load(f)
                         for department, faculty_key in department_faculty_mapping.items():
                             try:
                                 faculty_subjects[faculty_lookup[faculty_key]
-                                                ] += department_subjects[department]
+                                                 ] += department_subjects[department]
                             except Exception:
-                                self.log_file.write('Missing department (maybe renamed) {}\n'.format(department))
+                                self.log_file.write(
+                                    'Missing department (maybe renamed) {}\n'.format(department))
                                 self.log_file.write(traceback.format_exc())
 
             for arr in faculty_subjects.values():
