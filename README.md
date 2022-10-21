@@ -1,13 +1,13 @@
 # CUHK Course Scraper
 ### Functions
-* `search_subject`: Input desired subject code, e.g. ACCT, parser will save courses under ACCT in `dirname/ACCT.json`.
+* `search_subject`: Input desired subject code, e.g. ACCT, parser will save courses under ACCT in `dirname/courses/ACCT.json`.
 
-* `parse_all`: Parses all subjects, and save courses in `subject.json` for each subject.
+* `parse_all`: Parses all subjects, and save courses in `[subject].json` for each subject.
 
 ### Example
 ```python
-cusis = Course(dirname='courses')
-cusis.search_subject('AIST')
+cs = CourseScraper()
+cs.search_subject(subject="AIST")
 ```
 In `courses/AIST.json` (Selected)
 
