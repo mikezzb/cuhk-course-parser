@@ -66,7 +66,10 @@ class CourseScraper:
     def post_processing(self, stat=False):
         if stat:
             self.generate_stat()
-        # Make the output data dir for FE & BE to use
+        try:
+            self.log_file.close()
+        except Exception:
+            pass
 
     def generate_stat(self):
         self.remove_empty_courses()
@@ -205,8 +208,13 @@ class CourseScraper:
                     with open(os.path.join(self.derived_dirname, 'departments.json'), 'r') as f:
                         department_subjects = json.load(f)
                         for department, faculty_key in department_faculty_mapping.items():
-                            faculty_subjects[faculty_lookup[faculty_key]
-                                             ] += department_subjects[department]
+                            try:
+                                faculty_subjects[faculty_lookup[faculty_key]
+                                                ] += department_subjects[department]
+                            except Exception:
+                                self.log_file.write('Missing department (maybe renamed) {}\n'.format(department))
+                                self.log_file.write(traceback.format_exc())
+
             for arr in faculty_subjects.values():
                 arr.sort()
 
