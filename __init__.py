@@ -174,9 +174,11 @@ class CourseScraper:
                     instructors.add(part)
 
         self.with_course_section(append_to_instructors)
-        print(f"Found {len(instructors)} instructors")
+        sorted_instructors = list(instructors)
+        sorted_instructors.sort()
+        print(f"Found {len(sorted_instructors)} instructors")
         with open(os.path.join(self.resources_dirname, 'instructors.json'), 'w') as f:
-            json.dump(list(instructors), f)
+            json.dump(sorted_instructors, f)
 
     def remove_empty_courses(self):
         def append_to_remove(courses, subject, f):
