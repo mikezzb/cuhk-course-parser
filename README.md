@@ -4,7 +4,10 @@
 
 * `parse_all`: Parses all subjects, and save courses in `[subject].json` for each subject.
 
-### Example
+### Examples
+
+Run `demo.ipynb`
+> E.g. Get all courses under a subject (e.g. AIST)
 ```python
 cs = CourseScraper()
 cs.search_subject(subject="AIST")
@@ -81,19 +84,6 @@ In `courses/AIST.json` (Selected)
 ]
 ```
 
-### How to Use
-Modify the main function in `course.py` and run it.
+### Results (CUHK Course Data)
 
-You need to enter a captcha (Opened in a new window) for every subject you want to parse.
-
-Output:
-```
-Parsing courses under subject AIST
-Input the captcha here: 9P22
-Found 10 courses under subject AIST
-Posting request #x for AIST1000 Introduction to Artificial Intelligence and Machine Learning
-Saved 10 AIST courses in courses/AIST.json
-```
-
-### Todo
-1. Replace special chars in fields like outcome and syllabus with something normal
+[cuhk-course-data](https://github.com/cutopia-labs/cuhk-course-data)
