@@ -3,3 +3,4 @@ ddddocr
 onnxruntime
 Pillow
 requests
+tqdm
