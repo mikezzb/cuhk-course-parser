@@ -1,4 +1,10 @@
-import os
+import os, sys
+
+def get_date_sort_key(s: str):
+        parts = s.split('/')
+        if len(parts) == 2:
+            return (int(parts[1]), int(parts[0]))
+        return 0
 
 def make_dirs(dirs):
     for dir in dirs:
@@ -29,7 +35,6 @@ def parse_days_and_times(s: str) -> tuple:
     }
     raw = list(filter(lambda x: x!='-', s.split())) # first is 2-letter weekday abbr, second is start time, last is end time
     return (days_dict[raw[0]], to_24_hours(raw[1]), to_24_hours(raw[2]))
-import os, sys
 
 class HiddenPrints:
     def __init__(self, hide = True):

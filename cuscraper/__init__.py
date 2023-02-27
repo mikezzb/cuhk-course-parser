@@ -13,7 +13,7 @@ import time
 import traceback
 import onnxruntime
 import ddddocr
-from .utils import make_dirs, parse_days_and_times, HiddenPrints
+from .utils import make_dirs, parse_days_and_times, HiddenPrints, get_date_sort_key
 from functools import reduce
 
 # Captcha
@@ -518,7 +518,8 @@ class CourseScraper:
                     details = list(filter(lambda x: x != '\n',
                                    node.get_text(';').split(';')))
                     days_and_times = parse_days_and_times(details[0])
-                    # i.e. duplicated
+                    meeting_dates += f', {details[3]}'
+                    # i.e. duplicated (meeting dates may not dup, so add before continue)
                     if days_and_times[0] in days and days_and_times[1] in start_times:
                         continue
                     days.append(days_and_times[0])
@@ -526,14 +527,15 @@ class CourseScraper:
                     end_times.append(days_and_times[2])
                     locations.append(details[1])
                     instructors.append(details[2])
-                    meeting_dates += f', {details[3]}'
+                # split, dedup & sort dates
+                processed_meeting_dates = sorted(set(list(filter(None, meeting_dates.split(', ')))), key=get_date_sort_key)
                 course_sections[section] = {
                     'startTimes': start_times,
                     'endTimes': end_times,
                     'days': days,
                     'locations': locations,
                     'instructors': instructors,
-                    'meetingDates': list(filter(None, meeting_dates.split(', '))),
+                    'meetingDates': processed_meeting_dates,
                 }
             except Exception as e:
                 # Probably just missing some non-mandatory fields
